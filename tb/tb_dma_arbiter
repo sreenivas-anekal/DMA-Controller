@@ -1,0 +1,80 @@
+// tb_dma_arbiter.v
+`timescale 1ns/1ps
+
+module tb_dma_arbiter;
+
+    reg  clk;
+    reg  rst_n;
+    reg  req_mm2s;
+    reg  req_s2mm;
+    reg  transfer_done;
+    wire grant_mm2s;
+    wire grant_s2mm;
+
+    // Instantiate Unit Under Test (UUT)
+    dma_arbiter uut (
+        .clk(clk), .rst_n(rst_n),
+        .req_mm2s(req_mm2s), .req_s2mm(req_s2mm),
+        .transfer_done(transfer_done),
+        .grant_mm2s(grant_mm2s), .grant_s2mm(grant_s2mm)
+    );
+
+    // Generate 50MHz System Clock
+    initial clk = 0;
+    always #10 clk = ~clk;
+
+    // Waveform Database Setup
+    initial begin
+        $dumpfile("dump.vcd");
+        $dumpvars(0, tb_dma_arbiter);
+    end
+
+    // Simulation Stimulus Sequence
+    initial begin
+        // Scenario 0: Reset Layout Initialization
+        rst_n = 0; req_mm2s = 0; req_s2mm = 0; transfer_done = 0;
+        #30 rst_n = 1;
+        repeat(2) @(posedge clk);
+
+        // Scenario 1: Isolated MM2S Request
+        $display("[%0t] Scenario 1: Launching single MM2S Request", $time);
+        req_mm2s = 1;
+        @(posedge clk); #1; // Wait for clock edge evaluation
+        if (grant_mm2s) $display("-> SUCCESS: MM2S Granted Bus Access.");
+        
+        #40 transfer_done = 1; // Simulate transaction finishing
+        req_mm2s = 0;
+        @(posedge clk); #1;
+        transfer_done = 0;
+
+        repeat(2) @(posedge clk);
+
+        // Scenario 2: Severe Simultaneous Collision (Both assert at the same clock edge!)
+        $display("[%0t] Scenario 2: Simultaneous Collision! Both channels asserting...", $time);
+        req_mm2s = 1;
+        req_s2mm = 1;
+        
+        @(posedge clk); #1;
+        if (grant_s2mm) $display("-> ROUND-ROBIN PASSED: S2MM won because MM2S went first last time!");
+
+        // Clear S2MM transfer out
+        #40 transfer_done = 1;
+        req_s2mm = 0;
+        @(posedge clk); #1;
+        transfer_done = 0;
+
+        // See if MM2S instantly catches the bus next on the very next cycle
+        @(posedge clk); #1;
+        if (grant_mm2s) $display("-> ROUND-ROBIN PASSED: MM2S caught the bus the moment S2MM released it.");
+
+        #40 transfer_done = 1;
+        req_mm2s = 0;
+        @(posedge clk); #1;
+        transfer_done = 0;
+
+        #100;
+        $display("[%0t] Arbiter Simulation Finished Successfully!", $time);
+        $finish;
+    end
+
+endmodule
